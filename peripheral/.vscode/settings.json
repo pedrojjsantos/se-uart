@@ -1,0 +1,9 @@
+{
+    "cmake.configureOnOpen": false,
+    "files.associations": {
+        "hci.h": "c",
+        "printk.h": "c",
+        "gatt.h": "c"
+    },
+    "editor.tabSize": 2
+}
