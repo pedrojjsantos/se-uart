@@ -33,7 +33,7 @@ static struct bt_gatt_attr attrs[] = {
 		BT_GATT_CCC(bt_uart_ccc_changed, BT_GATT_PERM_WRITE),
 };
 
-#define UART_TX_INDEX 3
+#define UART_TX_INDEX 2
 
 static struct bt_gatt_service bt_uart_svc = BT_GATT_SERVICE(attrs);
 
@@ -50,10 +50,29 @@ int bt_uart_transmit(struct bt_conn *conn, const uint8_t *buffer, size_t len) {
 	return bt_gatt_notify(conn, &attrs[UART_TX_INDEX], buffer, len);
 }
 
+void to_upper(char *str) {
+	int len = strlen(str);
+
+	for (int i = 0; i < len; i++) {
+		if (str[i] >= 'a' && str[i] <= 'z')
+			str[i] -= 'a' - 'A';
+	}
+}
+
 static ssize_t bt_uart_rx(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-					 								const void *buf, uint16_t len, uint16_t offset, uint8_t flags) {
-	printk("Received: \"%s\"\n",(char*) buf);
-	bt_uart_transmit(conn, buf, len);
+					 								const void *buf, uint16_t len, uint16_t offset, uint8_t flags)
+{
+	uint8_t data[len+1];
+
+	memcpy(data + offset, buf, len);
+	data[len] = '\0';
+
+	printk("Received: \"%s\"\n", (char*)data);
+	
+	to_upper(data);
+	
+	printk("Sending: \"%s\"\n", (char*)data);
+	bt_uart_transmit(conn, data, len);
 
 	return len;
 }

@@ -17,6 +17,7 @@
 #include <bluetooth/gatt.h>
 
 atomic_t flag_discovery_complete = ATOMIC_INIT(false);
+atomic_t flag_is_subscribed = ATOMIC_INIT(false);
 
 struct bt_uuid_128 uuid_uart_svc = BT_UUID_INIT_128(BT_UUID_128_ENCODE(1, 2, 3, 4, 0xABCDEF000000));
 struct bt_uuid_128 uuid_uart_rx  = BT_UUID_INIT_128(BT_UUID_128_ENCODE(1, 2, 3, 4, 0xABCDEF000001));
@@ -83,14 +84,14 @@ uint8_t discovery_cb(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
 void discover_handles() {
 	printk("Starting Discovery\n");
-	
-	struct bt_gatt_discover_params discover_params;
 
-	discover_params.uuid = &uuid_uart_svc.uuid;
-	discover_params.func = discovery_cb;
-	discover_params.start_handle = 0x0001;
-	discover_params.end_handle = 0xFFFF;
-	discover_params.type = BT_GATT_DISCOVER_PRIMARY;
+	struct bt_gatt_discover_params discover_params = {
+		.uuid = &uuid_uart_svc.uuid,
+		.func = discovery_cb,
+		.start_handle = 0x0001,
+		.end_handle = 0xFFFF,
+		.type = BT_GATT_DISCOVER_PRIMARY,
+	};
 
 	while (!conn_connected) {
 		k_sleep(K_MSEC(200));
@@ -147,10 +148,65 @@ void start_scanning(void) {
 void gatt_write(uint16_t handle, const char* data) {
 	printk("Sending \"%s\"\n", data);
 
-	int err = bt_gatt_write_without_response(conn_connected, handle, data, strlen(data)+1, false);
+	int err = bt_gatt_write_without_response(conn_connected, handle, data, strlen(data), false);
 
 	if (err != 0) {
 		printk("bt_gatt_write failed (%d)\n", err);
+	}
+}
+
+uint8_t notify(struct bt_conn *conn, struct bt_gatt_subscribe_params *params,
+							 const void *data, uint16_t len)
+{
+	uint8_t str[len+1];
+	memcpy(str, data, len);
+	str[len] = '\0';
+
+	printk("Received: \"%s\"\n", (char*)str);
+
+	return BT_GATT_ITER_CONTINUE;
+}
+
+void subscribe(struct bt_conn *conn, uint8_t err, struct bt_gatt_write_params *params) {
+	if (err) {
+		printk("Failed to subscribe (err %d)\n", err);
+	}
+
+	atomic_set(&flag_is_subscribed, true);
+
+	if (!params) {
+		printk("Null params\n");
+		return;
+	}
+
+	if (params->handle != notify_handle) {
+		printk("Unknown handle: %d\n", params->handle);
+	} else {
+		printk("Subscribed to characteristic\n");
+	}
+}
+
+void gatt_subscribe() {
+	struct bt_gatt_subscribe_params sub_params = {
+		.notify = notify,
+		.write = subscribe,
+		.ccc_handle = 0,
+		.value_handle = notify_handle,
+		.end_handle = 0xFFFF,
+		.value = BT_GATT_CCC_NOTIFY,
+	};
+
+	atomic_set(&flag_is_subscribed, false);
+	int err = bt_gatt_subscribe(conn_connected, &sub_params);
+
+	if (err) {
+		printk("Failed to subscribe\n");
+	} else {
+		printk("Subscribe request sent\n");
+	}
+
+	while (!atomic_get(&flag_is_subscribed)) {
+		k_sleep(K_MSEC(5));
 	}
 }
 
@@ -165,7 +221,7 @@ void main(void) {
 
 	start_scanning();
 	discover_handles();
-	// gatt_subscribe();
+	gatt_subscribe();
 
 	console_getline_init();
 
